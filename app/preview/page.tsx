@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -12,7 +12,7 @@ type Project = {
   created_at: string;
 };
 
-export default function PreviewPage() {
+function PreviewContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("projectId");
@@ -116,5 +116,21 @@ export default function PreviewPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function PreviewPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-slate-950 px-6 py-16 text-white">
+          <div className="mx-auto max-w-4xl">
+            <p className="text-slate-300">Loading preview...</p>
+          </div>
+        </main>
+      }
+    >
+      <PreviewContent />
+    </Suspense>
   );
 }
