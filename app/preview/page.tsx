@@ -9,6 +9,7 @@ type Project = {
   title: string;
   status: string;
   uploaded_file_path: string | null;
+  extracted_text: string | null;
   created_at: string;
 };
 
@@ -20,6 +21,7 @@ function PreviewContent() {
   const [project, setProject] = useState<Project | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [extracting, setExtracting] = useState(false);
 
   useEffect(() => {
     async function loadProject() {
@@ -40,7 +42,7 @@ function PreviewContent() {
 
       const { data, error } = await supabase
         .from("projects")
-        .select("id, title, status, uploaded_file_path, created_at")
+        .select("id, title, status, uploaded_file_path, extracted_text, created_at")
         .eq("id", projectId)
         .eq("user_id", user.id)
         .single();
@@ -56,6 +58,70 @@ function PreviewContent() {
 
     loadProject();
   }, [projectId, router]);
+
+  async function handleExtractText() {
+    if (!project?.uploaded_file_path) {
+      setMessage("This project does not have an uploaded file.");
+      return;
+    }
+
+    if (!project.title.toLowerCase().endsWith(".pptx")) {
+      setMessage("Text extraction currently supports .pptx files only.");
+      return;
+    }
+
+    setExtracting(true);
+    setMessage("");
+
+    const { data: fileBlob, error: downloadError } = await supabase.storage
+      .from("uploads")
+      .download(project.uploaded_file_path);
+
+    if (downloadError || !fileBlob) {
+      setMessage(downloadError?.message || "Could not download uploaded file.");
+      setExtracting(false);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", fileBlob, project.title);
+
+    const response = await fetch("/api/extract-pptx", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setMessage(result.error || "Failed to extract text.");
+      setExtracting(false);
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("projects")
+      .update({
+        extracted_text: result.extractedText,
+        status: "text_extracted",
+      })
+      .eq("id", project.id);
+
+    if (updateError) {
+      setMessage(updateError.message);
+      setExtracting(false);
+      return;
+    }
+
+    setProject({
+      ...project,
+      extracted_text: result.extractedText,
+      status: "text_extracted",
+    });
+
+    setMessage("Text extracted successfully.");
+    setExtracting(false);
+  }
 
   if (loading) {
     return (
@@ -80,7 +146,7 @@ function PreviewContent() {
           </h1>
 
           {message && (
-            <p className="mt-5 rounded-xl bg-red-500/10 p-4 text-sm text-red-200">
+            <p className="mt-5 rounded-xl bg-white/10 p-4 text-sm text-slate-200">
               {message}
             </p>
           )}
@@ -97,20 +163,22 @@ function PreviewContent() {
                 <p className="mt-2 text-lg">{project.status}</p>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-6">
-                <p className="text-sm text-slate-400">Uploaded file path</p>
-                <p className="mt-2 break-all text-sm text-slate-300">
-                  {project.uploaded_file_path}
-                </p>
-              </div>
+              <button
+                onClick={handleExtractText}
+                disabled={extracting}
+                className="rounded-xl bg-blue-500 px-6 py-3 font-semibold text-white hover:bg-blue-400 disabled:opacity-60"
+              >
+                {extracting ? "Extracting text..." : "Extract text from PowerPoint"}
+              </button>
 
-              <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 p-6">
-                <h3 className="text-xl font-semibold">Next step</h3>
-                <p className="mt-2 text-slate-300">
-                  In the next step, SlideMate AI will read this uploaded file and
-                  turn it into an improved slide outline.
-                </p>
-              </div>
+              {project.extracted_text && (
+                <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-6">
+                  <h3 className="text-xl font-semibold">Extracted text</h3>
+                  <pre className="mt-4 max-h-96 overflow-auto whitespace-pre-wrap rounded-xl bg-black/30 p-4 text-sm text-slate-300">
+                    {project.extracted_text}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
         </div>
